@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from typing import Union, Literal
 from PIL import Image
@@ -576,7 +577,7 @@ def absolute_to_relative_coords(abs_coords: list, width, height):
     return [absolute_to_relative_coords(line, width, height) for line in abs_coords]
 
 
-def get_yolo_bounding_box(polygon_vertices):
+def get_yolo_bbox_from_polygon(polygon_vertices):
     """
     Calculates the bounding box coordinates for a polygon.
 
@@ -601,7 +602,39 @@ def get_yolo_bounding_box(polygon_vertices):
         ymax = max(ymax, y)
 
     # return [xmin, ymin, xmax, ymax]
-    return [(xmin + xmax) / 2, (ymin - ymax) / 2, (xmax - xmin), (ymax - ymin)]
+    return [(xmin + xmax) / 2, (ymin + ymax) / 2, (xmax - xmin), (ymax - ymin)]
+
+
+def increment_filename(filename):
+    """
+    Increment the filename by 1. If the filename already contains a number, increment that number.
+    Otherwise, append a number to the filename.
+
+    :param filename: The original filename.
+    :return: The incremented filename.
+    """
+    base, ext = os.path.splitext(filename)
+
+    # Match if the filename ends with a number
+    match = re.search(r"_(\d+)$", base)
+
+    if match:
+        # Increment the number found
+        number = int(match.group(1)) + 1
+        new_base = re.sub(r"_(\d+)$", f"_{number}", base)
+    else:
+        # If no number found, append (2) to the base name
+        new_base = f"{base}_2"
+
+    # Combine the new base name with the original extension
+    incremented_filename = f"{new_base}{ext}"
+    return incremented_filename
+
+
+def get_poly_from_yolo_bbox(bbox):
+    x, y, w, h = bbox
+    ww, hh = w * 0.5, h * 0.5
+    return [(x - ww, y - hh), (x + ww, y - hh), (x - ww, y + hh), (x + ww, y + hh)]
 
 
 def darken_color(bgr_color, darkening_factor=0.1):
@@ -690,27 +723,123 @@ def select_from_weighted_sublists(sublists):
 
     return selected_sublist_index
 
-# if __name__ == "__main__":
-#     image_path = "../tests/images/000000000009.jpg"
-#     original_image = cv2.imread(image_path)
+
+# def clip_polygon_to_bbox(bbox, polygon):
+#     """
+#     Clip a polygon to the given bounding box.
 #
-#     h, w = original_image.shape[:2]
-#     border = 150
-#     image_points = [[border, border], [w - border, border], [border, h - border], [w - border, h - border]]
+#     :param bbox: Bounding box coordinates (xmin, ymin, xmax, ymax).
+#     :param polygon: List of polygon vertices [(x1, y1), (x2, y2), ...].
+#     :return: New polygon vertices after clipping, or None if less than 3 vertices remain.
+#     """
 #
-#     # Warp the image and transform the coordinates
-#     warped_image, transformed_coords = warp_image_and_points(original_image, -0.5, 0.5, -30,
-#                                                              image_points=image_points)
+#     def inside(p, _edge):
+#         if _edge == 'left':
+#             return p[0] >= xmin
+#         elif _edge == 'right':
+#             return p[0] <= xmax
+#         elif _edge == 'bottom':
+#             return p[1] >= ymin
+#         elif _edge == 'top':
+#             return p[1] <= ymax
 #
-#     for x, y in image_points:
-#         cv2.circle(original_image, (x, y), 1, (128, 0, 0), 5)
-#     for x, y in transformed_coords:
-#         cv2.circle(warped_image, (x, y), 1, (128, 0, 0), 5)
+#     def intersect(p1, p2, _edge):
+#         if _edge == 'left':
+#             x, y = xmin, p1[1] + (xmin - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
+#         elif _edge == 'right':
+#             x, y = xmax, p1[1] + (xmax - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
+#         elif _edge == 'bottom':
+#             x, y = p1[0] + (ymin - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), ymin
+#         elif _edge == 'top':
+#             x, y = p1[0] + (ymax - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), ymax
+#         else:
+#             raise ValueError("Unknown edge")
+#         return [x, y]
 #
-#     cv2.imshow('Warped Image', warped_image)
-#     cv2.imshow("Original Image", original_image)
-#     cv2.waitKey(0)
-#     cv2.destroyAllWindows()
+#     def clip_polygon(_polygon, _edge):
+#         _clipped_polygon = []
+#         for i in range(len(_polygon)):
+#             p1 = _polygon[i - 1]
+#             p2 = _polygon[i]
+#             if inside(p2, _edge):
+#                 if not inside(p1, _edge):
+#                     _clipped_polygon.append(intersect(p1, p2, _edge))
+#                 _clipped_polygon.append(p2)
+#             elif inside(p1, _edge):
+#                 _clipped_polygon.append(intersect(p1, p2, _edge))
+#         return _clipped_polygon
 #
-#     print("Original Coordinates", image_points)
-#     print("Transformed Coordinates:", transformed_coords)
+#     xmin, ymin, xmax, ymax = bbox
+#     edges = ['left', 'right', 'bottom', 'top']
+#
+#     clipped_polygon = polygon
+#     for edge in edges:
+#         clipped_polygon = clip_polygon(clipped_polygon, edge)
+#         if len(clipped_polygon) < 3:
+#             return None
+#
+#     return clipped_polygon
+
+
+def clip_polygon_to_bbox(bbox, polygon):
+    """
+    Clip a polygon to the given bounding box.
+
+    :param bbox: Bounding box coordinates (xmin, ymin, xmax, ymax).
+    :param polygon: List of polygon vertices [(x1, y1), (x2, y2), ...].
+    :return: New polygon vertices after clipping, or None if less than 3 vertices remain.
+    """
+    # print(bbox)
+    # print(polygon)
+    def inside(p, edge):
+        if edge == 'left':
+            return p[0] >= xmin
+        elif edge == 'right':
+            return p[0] <= xmax
+        elif edge == 'bottom':
+            return p[1] >= ymin
+        elif edge == 'top':
+            return p[1] <= ymax
+
+    def intersect(p1, p2, edge):
+        if edge == 'left':
+            x, y = xmin, p1[1] + (xmin - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
+        elif edge == 'right':
+            x, y = xmax, p1[1] + (xmax - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
+        elif edge == 'bottom':
+            x, y = p1[0] + (ymin - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), ymin
+        elif edge == 'top':
+            x, y = p1[0] + (ymax - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), ymax
+        return [x, y]
+
+    def clip_polygon(polygon, edge):
+        clipped_polygon = []
+        for i in range(len(polygon)):
+            p1 = polygon[i - 1]
+            p2 = polygon[i]
+            if inside(p2, edge):
+                if not inside(p1, edge):
+                    clipped_polygon.append(intersect(p1, p2, edge))
+                clipped_polygon.append(p2)
+            elif inside(p1, edge):
+                clipped_polygon.append(intersect(p1, p2, edge))
+        return clipped_polygon
+
+    xmin, ymin, xmax, ymax = bbox
+    edges = ['left', 'right', 'bottom', 'top']
+
+    clipped_polygon = polygon
+    for edge in edges:
+        clipped_polygon = clip_polygon(clipped_polygon, edge)
+        if len(clipped_polygon) < 3:
+            return None
+
+    return clipped_polygon
+
+
+def clip_bbox_to_bbox(bbox, bbox_to_clip):
+    bbox_poly = get_poly_from_yolo_bbox(bbox_to_clip)
+    clipped_poly = clip_polygon_to_bbox(bbox, bbox_poly)
+    if clipped_poly:
+        return get_yolo_bbox_from_polygon(clipped_poly)
+    return None

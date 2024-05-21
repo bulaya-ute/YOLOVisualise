@@ -15,24 +15,39 @@ from utils import change_extension, warp_image_and_points, points_to_coords, fil
 
 
 def _get_data_paths_from_dir(dataset_dir):
+    def similar_path_exists(path):
+        dir_name = os.path.dirname(path)
+        filename = str(os.path.basename(path).lower())
+
+        dir_contents = os.listdir(dir_name)
+        for dir_file in [f.lower() for f in dir_contents]:
+            if filename in dir_file:
+                return os.path.join(dir_name, dir_file)
+        return False
+
     splits = ("train", "val", "test")
     data_paths = []  # In [(image_path, label_path, split), ...] format
 
     if os.path.exists(f"{dataset_dir}/images"):
         for split in splits:
             images_dir = os.path.join(dataset_dir, "images", split)
-            if os.path.exists(images_dir):
+            split_dir_name = similar_path_exists(images_dir)
+            if split_dir_name:
+                split_basename = os.path.basename(split_dir_name)
+                images_dir = split_dir_name
                 for img_path in [os.path.join(images_dir, f) for f in os.listdir(images_dir)]:
                     # Check that the image exists
                     if img_path.split(".")[-1].lower() in ("jpg", "jpeg", "png"):
-                        label_path = os.path.join(dataset_dir, "labels", split,
+                        label_path = os.path.join(dataset_dir, "labels", split_basename,
                                                   change_extension(os.path.basename(img_path), "txt"))
                         data_paths.append((img_path, label_path, split))
         return data_paths
 
     for split in splits:
-        if os.path.exists(os.path.join(dataset_dir, split)):
-            for img_path in [os.path.join(dataset_dir, split, "images", f) for
+        split_dir = os.path.join(dataset_dir, split)
+        if similar_path_exists(split_dir):
+            split_dir = similar_path_exists(split_dir)
+            for img_path in [os.path.join(split_dir, "images", f) for
                              f in os.listdir(os.path.join(dataset_dir, split, "images"))]:
                 label_path = os.path.join(dataset_dir, split, "labels",
                                           change_extension(os.path.basename(img_path), "txt"))
@@ -45,12 +60,12 @@ class Dataset:
     def __init__(self, dataset_dir=None, data=None, task: str = "segment"):
         self.contents: list["DatasetEntry"] = []
         self.task = task
+        self.other_attrs = {}
         if dataset_dir is not None:
             data_paths = _get_data_paths_from_dir(dataset_dir)
             self._load_data(data_paths, task=task)
         elif data is not None:
             raise NotImplementedError("Handling yaml files will be implemented in future.")
-
         self.class_names = {class_index: f"class_{class_index}" for class_index in self.classes_present}
 
     def _load_data(self, data: list[tuple[str, str, str]], task, clip=False):
@@ -69,13 +84,12 @@ class Dataset:
                         _class_index = _row_data.pop(0)
                         if clip:
                             if task == "segment":
-                                points_as_coords = points_to_coords(_row_data[1:])
-                                _row_data = clip_polygon_to_bbox((0, 0, 1, 1), points_as_coords)
-                                if not _row_data:
-                                    continue
-                                _row_data = coords_to_points(_row_data)
-                                # print("before clip", _row_data[1:])
-                                # print("after clip", _row_data)
+                                # points_as_coords = points_to_coords(_row_data[1:])
+                                # _row_data = clip_polygon_to_bbox((0.0, 0.0, 1.0, 1.0), points_as_coords)
+                                # if not _row_data:
+                                #     continue
+                                # _row_data = coords_to_points(_row_data)
+                                pass
                             elif task == "detect":
                                 _row_data = clip_bbox_to_bbox((0, 0, 1, 1), _row_data[1:])
                             else:
@@ -89,11 +103,23 @@ class Dataset:
 
             self.contents.append(DatasetEntry(loaded_image, annotations, split, task=task))
 
+    def remove_unannotated(self):
+        removed = 0
+        i = 0
+        while i < len(self.contents):
+            entry = self.contents[i]
+            if entry.annotations:
+                i += 1
+            else:
+                self.contents.pop(i)
+                removed += 1
+        print(f"Removed {removed} background images.")
+
     def name_classes(self, class_names: dict):
         self.class_names.update(class_names)
 
     def show_random_sample(self):
-        weights = [int(bool(e.annotations)) for e in self.contents]
+        weights = [int(bool(e.annotations)) + 1 for e in self.contents]
         if not any(weights):
             sample = choice(self.contents)
             sample.show(show_instances=False)
@@ -180,14 +206,14 @@ class Dataset:
             # Randomly picked dataset entry to be duplicated, then augmented
             selected_entry = self.contents[selected_index]
 
-            new_entry = copy(selected_entry)
+            new_entry = selected_entry.copy()
             new_entry.augment()
             self.contents.append(new_entry)
 
     def shuffle_data(self):
         shuffle(self.contents)
 
-    def show_numbers(self):
+    def show_instance_counts(self):
         split_data = {"train": {cls: 0 for cls in self.classes_present},
                       "val": {cls: 0 for cls in self.classes_present},
                       "test": {cls: 0 for cls in self.classes_present}}
@@ -197,16 +223,46 @@ class Dataset:
                 class_index = instance_row[0]
                 split_data[entry.split][class_index] += 1
 
-        print("=======================================================")
+        print("===================== INSTANCE COUNTS =====================")
+
         for split, data in split_data.items():
             print(f"{split.upper()}:")
             for cls, freq in data.items():
                 print(f"\t{cls}: {freq}")
-        print(len)
-        print("=======================================================")
+        print(len(self.contents))
+        print("===========================================================")
+
+    def copy(self):
+        contents_copy = [entry.copy() for entry in self.contents]
+        class_names_copy = {copy(k): copy(v) for k, v in self.class_names.items()}
+        other_attrs_copy = {copy(k): copy(v) for k, v in self.other_attrs.items()}
+        task_copy = self.task
+        obj_copy = copy(self)
+        obj_copy.contents = contents_copy
+        obj_copy.class_names = class_names_copy
+        obj_copy.task = task_copy
+        return obj_copy
+
+    def clip_vertices_to_image(self):
+        """ Modifies the vertices to be within the image """
+
+        for entry in tqdm(self.contents, desc="Clipping points"):
+            entry.clip_vertices_to_image()
+
+    def __len__(self):
+        return len(self.contents)
+
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            return self.contents[item]
+        raise ValueError(f"Unsupported data type. Expected int, got {type(item)}.")
 
 
 class DatasetEntry:
+    """
+    Base class for dataset entry. It contains the image, annotations and more information
+    such as the task (e.g. detect or segment).
+    """
     # Colors are in BGR format
     colors = [
         [96, 43, 186],  # Blue
@@ -267,8 +323,9 @@ class DatasetEntry:
             pass
 
     def show(self, show_instances=True):
+        image = self._image.copy()
         if show_instances:
-            h, w = self._image.shape[:2]
+            h, w = image.shape[:2]
             for instance_details in self.annotations:
                 instance_details = instance_details[::]
                 _class_index = int(instance_details.pop(0))
@@ -285,23 +342,23 @@ class DatasetEntry:
                     end_point = (abs_coords + [abs_coords[0]])[i + 1]
                     start_point = [int(p) for p in start_point]
                     end_point = [int(p) for p in end_point]
-                    cv2.line(self._image, start_point, end_point, darken_color(color), 2)
-                fill_translucent_polygon(self._image, abs_coords, color)
+                    cv2.line(image, start_point, end_point, darken_color(color), 2)
+                fill_translucent_polygon(image, abs_coords, color)
 
-        cv2.imshow(self.split, cv2.cvtColor(self._image, cv2.COLOR_BGR2RGB))
+        cv2.imshow("Random Sample Preview", cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         cv2.waitKey(0)
         try:
-            cv2.destroyWindow("Image")
+            cv2.destroyWindow("Random Sample Preview")
         except cv2.error:
             pass
 
-    def augment(self, h_shear=None, v_shear=None, rotate=None, flip=None):
+    def augment(self, h_shear=None, v_shear=None, rotate=None, flip=False):
         if h_shear is None:
-            h_shear = uniform(-0.5, 0.5)
+            h_shear = choice([-1, 1]) * uniform(0.2, 0.5)
         if v_shear is None:
-            v_shear = uniform(-0.5, 0.5)
+            v_shear = choice([-1, 1]) * uniform(0.2, 0.5)
         if rotate is None:
-            rotate = uniform(-10.0, 10.0)
+            rotate = choice([-1, 1]) * uniform(5, 10)
         if flip is None:
             flip = choice(["h", None])
 
@@ -366,32 +423,61 @@ class DatasetEntry:
             else:
                 NotImplementedError(f"Unimplemented conversion from {self.task} to {new_task}")
 
+    def copy(self):
+        image_duplicate = self._image.copy()
+        annotations_duplicate = [[n for n in row] for row in self.annotations]
+        split_duplicate = self.split
+        task_duplicate = self.task
+        obj_duplicate = DatasetEntry(image_duplicate, annotations_duplicate, split_duplicate, task_duplicate)
+        return obj_duplicate
+
+    def clip_vertices_to_image(self):
+        i = 0
+        while i < len(self.annotations):
+            row = self.annotations[i]
+            class_index = row[0]
+            old_points = row[1:]
+            old_points_coords = points_to_coords(old_points)
+
+            new_points_coords = clip_polygon_to_bbox([0.0, 0.0, 1.0, 1.0], old_points_coords)
+            # for x, y in new_points_coords:
+            #     if x < 0.0 or x > 1.0 or y < 0.0
+            if new_points_coords:
+                new_points = coords_to_points(new_points_coords)
+                self.annotations[i] = [class_index] + new_points
+                i += 1
+            else:
+                self.annotations.pop(i)
+
+
 
 if __name__ == "__main__":
-    locusts_dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\BirdsDetection\datasets\locust_dataset",
-                              task="detect")
-    locusts_dataset.show_numbers()
+    dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_segmentation_yolo2")
+    # dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
+    dataset.remove_unannotated()
+    dataset.add_augmentations(4)
+    dataset.clip_vertices_to_image()
 
-    birds_dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\BirdsDetection\datasets\coco_birds")
-    birds_dataset.show_numbers()
+    for _ in range(5):
+        random_sample = choice(dataset)
+    #
+    #     for row in random_sample.annotations:
+    #         for n in row[1:]:
+    #             if n < 0 or n > 1:
+    #                 print(row.index(n), n, row)
+    #                 break
+    #         else:
+    #             break
+        random_sample.show()
 
-    for _ in range(10):
-        birds_dataset.show_random_sample()
-    for _ in range(10):
-        locusts_dataset.show_random_sample()
+        # [print(row) for row in random_sample.annotations]
+        # print()
 
-    merged_dataset = locusts_dataset + birds_dataset
-    merged_dataset.show_numbers()
+    dataset.save(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
 
-    merged_dataset.convert_task("detect")
-    # print("before normalisation", merged_dataset.classes_present)
-    merged_dataset.normalise_class_indexes()
-    # print("after normalisation", merged_dataset.classes_present)
-
-    # input()
-    for _ in range(20):
-        merged_dataset.show_random_sample()
-        # locusts_dataset.show_random_sample()
-        # birds_dataset.show_random_sample()
-    merged_dataset.save("./birds_and_locust_detection")
-    # dental_dataset.show_random_sample()
+    # for _ in range(45):
+    #     random_sample = choice(coco128.contents)
+    #     # random_sample.augment()
+    #     random_sample.show()
+    #     [print(row) for row in random_sample.annotations]
+    #     print()

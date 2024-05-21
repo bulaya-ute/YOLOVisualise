@@ -72,7 +72,7 @@ def add_padding(image, up=0, down=0, left=0, right=0):
     return padded_image
 
 
-def overlay_images(_background_image, _overlay_image, x=0.0, y=0.0, seg_points=None):
+def overlay_images(_background_image: Image, _overlay_image: Image, x=0.0, y=0.0, seg_points=None):
     """
     Places an image on top of the other. Raise error of overlay image is larger
     than background either by width or height.
@@ -521,7 +521,11 @@ def weighted_random_selection(values: list) -> int:
 
 
 def points_to_coords(points: list):
+
     if type(points[0]) in (int, float):
+        if len(points) % 2 != 0:
+            raise ValueError(f"An even number of points must be supplied. Got {points}")
+
         return list(zip(points[0::2], points[1::2]))
     return [points_to_coords(pl) for pl in points]
 
@@ -724,63 +728,6 @@ def select_from_weighted_sublists(sublists):
     return selected_sublist_index
 
 
-# def clip_polygon_to_bbox(bbox, polygon):
-#     """
-#     Clip a polygon to the given bounding box.
-#
-#     :param bbox: Bounding box coordinates (xmin, ymin, xmax, ymax).
-#     :param polygon: List of polygon vertices [(x1, y1), (x2, y2), ...].
-#     :return: New polygon vertices after clipping, or None if less than 3 vertices remain.
-#     """
-#
-#     def inside(p, _edge):
-#         if _edge == 'left':
-#             return p[0] >= xmin
-#         elif _edge == 'right':
-#             return p[0] <= xmax
-#         elif _edge == 'bottom':
-#             return p[1] >= ymin
-#         elif _edge == 'top':
-#             return p[1] <= ymax
-#
-#     def intersect(p1, p2, _edge):
-#         if _edge == 'left':
-#             x, y = xmin, p1[1] + (xmin - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
-#         elif _edge == 'right':
-#             x, y = xmax, p1[1] + (xmax - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
-#         elif _edge == 'bottom':
-#             x, y = p1[0] + (ymin - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), ymin
-#         elif _edge == 'top':
-#             x, y = p1[0] + (ymax - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), ymax
-#         else:
-#             raise ValueError("Unknown edge")
-#         return [x, y]
-#
-#     def clip_polygon(_polygon, _edge):
-#         _clipped_polygon = []
-#         for i in range(len(_polygon)):
-#             p1 = _polygon[i - 1]
-#             p2 = _polygon[i]
-#             if inside(p2, _edge):
-#                 if not inside(p1, _edge):
-#                     _clipped_polygon.append(intersect(p1, p2, _edge))
-#                 _clipped_polygon.append(p2)
-#             elif inside(p1, _edge):
-#                 _clipped_polygon.append(intersect(p1, p2, _edge))
-#         return _clipped_polygon
-#
-#     xmin, ymin, xmax, ymax = bbox
-#     edges = ['left', 'right', 'bottom', 'top']
-#
-#     clipped_polygon = polygon
-#     for edge in edges:
-#         clipped_polygon = clip_polygon(clipped_polygon, edge)
-#         if len(clipped_polygon) < 3:
-#             return None
-#
-#     return clipped_polygon
-
-
 def clip_polygon_to_bbox(bbox, polygon):
     """
     Clip a polygon to the given bounding box.
@@ -789,41 +736,42 @@ def clip_polygon_to_bbox(bbox, polygon):
     :param polygon: List of polygon vertices [(x1, y1), (x2, y2), ...].
     :return: New polygon vertices after clipping, or None if less than 3 vertices remain.
     """
-    # print(bbox)
-    # print(polygon)
-    def inside(p, edge):
-        if edge == 'left':
+
+    def inside(p, _edge):
+        if _edge == 'left':
             return p[0] >= xmin
-        elif edge == 'right':
+        elif _edge == 'right':
             return p[0] <= xmax
-        elif edge == 'bottom':
+        elif _edge == 'bottom':
             return p[1] >= ymin
-        elif edge == 'top':
+        elif _edge == 'top':
             return p[1] <= ymax
 
-    def intersect(p1, p2, edge):
-        if edge == 'left':
+    def intersect(p1, p2, _edge):
+        if _edge == 'left':
             x, y = xmin, p1[1] + (xmin - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
-        elif edge == 'right':
+        elif _edge == 'right':
             x, y = xmax, p1[1] + (xmax - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
-        elif edge == 'bottom':
+        elif _edge == 'bottom':
             x, y = p1[0] + (ymin - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), ymin
-        elif edge == 'top':
+        elif _edge == 'top':
             x, y = p1[0] + (ymax - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), ymax
+        else:
+            raise ValueError("Unknown edge")
         return [x, y]
 
-    def clip_polygon(polygon, edge):
-        clipped_polygon = []
-        for i in range(len(polygon)):
-            p1 = polygon[i - 1]
-            p2 = polygon[i]
-            if inside(p2, edge):
-                if not inside(p1, edge):
-                    clipped_polygon.append(intersect(p1, p2, edge))
-                clipped_polygon.append(p2)
-            elif inside(p1, edge):
-                clipped_polygon.append(intersect(p1, p2, edge))
-        return clipped_polygon
+    def clip_polygon(_polygon, _edge):
+        _clipped_polygon = []
+        for i in range(len(_polygon)):
+            p1 = _polygon[i - 1]
+            p2 = _polygon[i]
+            if inside(p2, _edge):
+                if not inside(p1, _edge):
+                    _clipped_polygon.append(intersect(p1, p2, _edge))
+                _clipped_polygon.append(p2)
+            elif inside(p1, _edge):
+                _clipped_polygon.append(intersect(p1, p2, _edge))
+        return _clipped_polygon
 
     xmin, ymin, xmax, ymax = bbox
     edges = ['left', 'right', 'bottom', 'top']
@@ -837,9 +785,95 @@ def clip_polygon_to_bbox(bbox, polygon):
     return clipped_polygon
 
 
-def clip_bbox_to_bbox(bbox, bbox_to_clip):
+def clip_polygon_to_bbox(bbox, polygon):
+    """
+    Clip a polygon to the given bounding box.
+
+    :param bbox: Bounding box coordinates (xmin, ymin, xmax, ymax).
+    :param polygon: List of polygon vertices [(x1, y1), (x2, y2), ...].
+    :return: New polygon vertices after clipping, or None if less than 3 vertices remain.
+    """
+
+    # print(bbox)
+    # print(polygon)
+    def inside(p, _edge):
+        if _edge == 'left':
+            return p[0] >= x_min
+        elif _edge == 'right':
+            return p[0] <= x_max
+        elif _edge == 'bottom':
+            return p[1] >= y_min
+        elif _edge == 'top':
+            return p[1] <= y_max
+
+    def intersect(p1, p2, _edge):
+        if _edge == 'left':
+            x, y = x_min, p1[1] + (x_min - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
+        elif _edge == 'right':
+            x, y = x_max, p1[1] + (x_max - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
+        elif _edge == 'bottom':
+            x, y = p1[0] + (y_min - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), y_min
+        elif _edge == 'top':
+            x, y = p1[0] + (y_max - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]), y_max
+        else:
+            raise RuntimeError(f"Unknown argument: '{_edge}'")
+        return [x, y]
+
+    def clip_polygon(_poly, _edge):
+        _clipped_polygon = []
+        for i in range(len(_poly)):
+            p1 = _poly[i - 1]
+            p2 = _poly[i]
+            if inside(p2, _edge):
+                if not inside(p1, _edge):
+                    _clipped_polygon.append(intersect(p1, p2, _edge))
+                _clipped_polygon.append(p2)
+            elif inside(p1, _edge):
+                _clipped_polygon.append(intersect(p1, p2, _edge))
+        return _clipped_polygon
+
+    # Handles when a superlist of polygons is supplied instead
+    if type(polygon[0][0]) in (list, tuple):
+        return [clip_polygon_to_bbox(bbox, p) for p in polygon]
+
+    x_min, y_min, x_max, y_max = bbox
+    edges = ['left', 'right', 'bottom', 'top']
+
+    if bbox[0] != 0.0 or bbox[1] != 0.0 or bbox[2] != 1.0 or bbox[3] != 1.0:
+        raise Exception("Something here")
+
+    # Check if it sticks out of the bbox
+    for x, y in polygon:
+        if x < x_min or x > x_max or y < y_min or y > y_max:
+            break  # Polygon sticks out
+    else:
+        return polygon  # Polygon is already within the bbox
+
+
+    clipped_polygon = polygon
+    for edge in edges:
+        clipped_polygon = clip_polygon(clipped_polygon, edge)
+        if len(clipped_polygon) < 3:
+            return None
+    # print()
+    for i, (x, y) in enumerate(clipped_polygon):
+        if x < x_min or x > x_max or y < y_min or y > y_max:
+            print("clipping", x, y)
+            x, y = clipped_polygon[i]
+            clipped_polygon[i] = [min([0.0, max(1.0, x)]), min([0.0, max(1.0, y)])]
+            raise RuntimeError("Fix this bug!!!!")
+    return clipped_polygon
+
+
+def clip_bbox_to_bbox(_bbox, bbox_to_clip):
     bbox_poly = get_poly_from_yolo_bbox(bbox_to_clip)
-    clipped_poly = clip_polygon_to_bbox(bbox, bbox_poly)
+    clipped_poly = clip_polygon_to_bbox(_bbox, bbox_poly)
     if clipped_poly:
         return get_yolo_bbox_from_polygon(clipped_poly)
     return None
+
+
+if __name__ == "__main__":
+    bbox = [0, 0, 1, 1]
+    polygon = [(0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)]
+    print(clip_polygon_to_bbox(bbox, polygon))

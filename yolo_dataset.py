@@ -185,10 +185,6 @@ class Dataset:
             return self
         raise ValueError("Incompatible datatypes for this operation")
 
-    def __getitem__(self, item):
-        if isinstance(item, int):
-            return self.contents[item]
-
     def convert_task(self, new_task: str):
         if new_task not in ("detect", "segment"):
             raise NotImplementedError("Tasks other than 'detect' and 'segment' will be implemented in future")
@@ -361,6 +357,10 @@ class DatasetEntry:
         :param flip: Set True to flip image
         :return:
         """
+        destination_task = self.task
+        if self.task != "segment":
+            self.convert_task("segment")
+
         if h_shear is None:
             h_shear = choice([-1, 1]) * uniform(0.2, 0.5)
         if v_shear is None:
@@ -381,6 +381,8 @@ class DatasetEntry:
         new_coords = absolute_to_relative_coords(new_coords, img_width, img_height)
         new_points = coords_to_points(new_coords)
         self.set_points(new_points)
+
+        self.convert_task(destination_task)
 
     def export_annotations(self):
         if self.annotations:
@@ -436,7 +438,7 @@ class DatasetEntry:
             if new_task == "segment":
                 for i, row in enumerate(self.annotations):
                     class_index = row.pop(0)
-                    x, y, w, h = points_to_coords(row)
+                    x, y, w, h = row
                     half_w, half_h = w / 2, h / 2
                     self.annotations[i] = [class_index] + [x - half_w, y - half_h,
                                                            x - half_w, y + half_h,
@@ -458,6 +460,9 @@ class DatasetEntry:
         return obj_duplicate
 
     def clip_vertices_to_image(self):
+        destination_task = self.task
+        self.convert_task("segment")
+
         i = 0
         while i < len(self.annotations):
             row = self.annotations[i]
@@ -475,16 +480,18 @@ class DatasetEntry:
             else:
                 self.annotations.pop(i)
 
+        # Return to correct task
+        self.convert_task(destination_task)
 
 
 if __name__ == "__main__":
-    dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_segmentation_yolo2")
+    dataset = Dataset(r"C:\Users\Bulaya\Desktop\fruits\YOLODataset", task="detect")
     # dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
-    dataset.remove_unannotated()
-    dataset.add_augmentations(4)
+    # dataset.remove_unannotated()
+    dataset.add_augmentations(20)
     dataset.clip_vertices_to_image()
 
-    for _ in range(5):
+    for _ in range(20):
         random_sample = choice(dataset)
     #
     #     for row in random_sample.annotations:
@@ -494,12 +501,13 @@ if __name__ == "__main__":
     #                 break
     #         else:
     #             break
+        print(random_sample.annotations)
         random_sample.show()
 
         # [print(row) for row in random_sample.annotations]
         # print()
 
-    dataset.save(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
+    # dataset.save(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
 
     # for _ in range(45):
     #     random_sample = choice(coco128.contents)

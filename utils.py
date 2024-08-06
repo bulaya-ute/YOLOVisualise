@@ -521,8 +521,12 @@ def weighted_random_selection(values: list) -> int:
 
 
 def points_to_coords(points: list):
-
-    if type(points[0]) in (int, float):
+    """
+    Convert a list of [x1, y1, x2, y2, ...] points to [(x1, y1), (x2, y2), ...] coordinates
+    :param points:
+    :return:
+    """
+    if isinstance(points[0], (int, float)):
         if len(points) % 2 != 0:
             raise ValueError(f"An even number of points must be supplied. Got {points}")
 

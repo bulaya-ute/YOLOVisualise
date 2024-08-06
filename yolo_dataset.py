@@ -353,6 +353,14 @@ class DatasetEntry:
             pass
 
     def augment(self, h_shear=None, v_shear=None, rotate=None, flip=False):
+        """
+        Augment the current entry.
+        :param h_shear: Horizontal shear. Can be negative or positive.
+        :param v_shear: Vertical shear. Can be negative or positive.
+        :param rotate: Angle of rotation.
+        :param flip: Set True to flip image
+        :return:
+        """
         if h_shear is None:
             h_shear = choice([-1, 1]) * uniform(0.2, 0.5)
         if v_shear is None:
@@ -419,9 +427,27 @@ class DatasetEntry:
                     if len(instance_bbox) != 4:
                         print("Before", row)
                         print("After", instance_bbox, "\n")
+                        raise RuntimeError
                 self.task = new_task
             else:
                 NotImplementedError(f"Unimplemented conversion from {self.task} to {new_task}")
+
+        elif self.task == "detect":
+            if new_task == "segment":
+                for i, row in enumerate(self.annotations):
+                    class_index = row.pop(0)
+                    x, y, w, h = points_to_coords(row)
+                    half_w, half_h = w / 2, h / 2
+                    self.annotations[i] = [class_index] + [x - half_w, y - half_h,
+                                                           x - half_w, y + half_h,
+                                                           x + half_w, y + half_h,
+                                                           x + half_w, y - half_h]
+                self.task = new_task
+            else:
+                NotImplementedError(f"Unimplemented conversion from {self.task} to {new_task}")
+
+        else:
+            NotImplementedError(f"Unimplemented conversion from {self.task} to {new_task}")
 
     def copy(self):
         image_duplicate = self._image.copy()

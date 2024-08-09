@@ -877,6 +877,37 @@ def clip_bbox_to_bbox(_bbox, bbox_to_clip):
     return None
 
 
+def resize_image_to_fit(image: np.ndarray, target_width=640, target_height=480) -> np.ndarray:
+    """
+    Resizes an image to fit within the specified width and height while maintaining its aspect ratio.
+
+    :param image: A NumPy array representing the image.
+    :param target_width: The target width to fit the image within.
+    :param target_height: The target height to fit the image within.
+    :return: A new NumPy array representing the resized image.
+    """
+    # Get the original dimensions of the image
+    original_height, original_width = image.shape[:2]
+
+    # Calculate the aspect ratios
+    aspect_ratio = original_width / original_height
+    target_aspect_ratio = target_width / target_height
+
+    # Determine the new dimensions
+    if aspect_ratio > target_aspect_ratio:
+        # Image is wider than target aspect ratio, fit to width
+        new_width = target_width
+        new_height = int(target_width / aspect_ratio)
+    else:
+        # Image is taller than target aspect ratio, fit to height
+        new_width = int(target_height * aspect_ratio)
+        new_height = target_height
+
+    # Resize the image
+    resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    return resized_image
+
+
 if __name__ == "__main__":
     bbox = [0, 0, 1, 1]
     polygon = [(0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)]

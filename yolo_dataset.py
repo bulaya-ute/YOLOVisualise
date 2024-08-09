@@ -11,7 +11,7 @@ from tqdm import tqdm
 from utils import change_extension, warp_image_and_points, points_to_coords, fill_translucent_polygon, \
     relative_to_absolute_coords, coords_to_points, absolute_to_relative_coords, generate_unique_filename, \
     create_directory, select_from_weighted_sublists, darken_color, get_yolo_bbox_from_polygon, clip_polygon_to_bbox, \
-    clip_bbox_to_bbox
+    clip_bbox_to_bbox, resize_image_to_fit
 
 
 def _get_data_paths_from_dir(dataset_dir):
@@ -253,6 +253,17 @@ class Dataset:
             return self.contents[item]
         raise ValueError(f"Unsupported data type. Expected int, got {type(item)}.")
 
+    def set_class_names(self, class_names: dict):
+        self.class_names.update(class_names)
+
+    def split(self, train_split=0.8, val_split=0.2, test_split=0.0):
+        splits = ["train", "val", "test"]
+        split_indices = [n for n in range(len(splits))]
+        weights = [train_split, val_split, test_split]
+        for entry in tqdm(self.contents, desc="Splitting"):
+            new_split_index = choices(split_indices, weights=weights, k=1)[0]
+            entry.set_split(splits[new_split_index])
+
 
 class DatasetEntry:
     """
@@ -341,7 +352,7 @@ class DatasetEntry:
                     cv2.line(image, start_point, end_point, darken_color(color), 2)
                 fill_translucent_polygon(image, abs_coords, color)
 
-        cv2.imshow("Random Sample Preview", cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        cv2.imshow("Sample Preview", resize_image_to_fit(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)))
         cv2.waitKey(0)
         try:
             cv2.destroyWindow("Random Sample Preview")
@@ -483,35 +494,24 @@ class DatasetEntry:
         # Return to correct task
         self.convert_task(destination_task)
 
+    def set_split(self, split: Literal["train", "val", "test"]):
+        self.split = split
+
 
 if __name__ == "__main__":
-    dataset = Dataset(r"C:\Users\Bulaya\Desktop\fruits\YOLODataset", task="detect")
+    dataset = Dataset(r"C:\Users\Bulaya\Documents\WhatsApp\fruits\YOLODataset", task="segment")
     # dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
     # dataset.remove_unannotated()
-    dataset.add_augmentations(20)
+    # print(dataset.class_names)
+    dataset.set_class_names(class_names={0: "tomato", 1: "pear", 2: "cherry"})
+    dataset.add_augmentations(4)
     dataset.clip_vertices_to_image()
+    dataset.convert_task("detect")
+    dataset.split(train_split=0.8, val_split=0.2)
 
-    for _ in range(20):
-        random_sample = choice(dataset)
-    #
-    #     for row in random_sample.annotations:
-    #         for n in row[1:]:
-    #             if n < 0 or n > 1:
-    #                 print(row.index(n), n, row)
-    #                 break
-    #         else:
-    #             break
-        print(random_sample.annotations)
-        random_sample.show()
-
-        # [print(row) for row in random_sample.annotations]
-        # print()
-
-    # dataset.save(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
-
-    # for _ in range(45):
-    #     random_sample = choice(coco128.contents)
-    #     # random_sample.augment()
+    # for _ in range(15):
+    #     random_sample = choice(dataset)
+    #     # print(random_sample.annotations)
     #     random_sample.show()
-    #     [print(row) for row in random_sample.annotations]
-    #     print()
+
+    dataset.save(r"C:\Users\Bulaya\PycharmProjects\FruitsDetection\fruits_dataset")

@@ -140,15 +140,13 @@ def _get_data_paths_from_dir(dataset_dir, dataset_type: Literal["type1"] | Liter
     return data_paths
 
 
-def _get_data_paths_from_yaml(yaml_path, dataset_type: Literal["type1", "type2"]):
-    with open(yaml_path, 'r') as file:
-        data = yaml.safe_load(file)
+def _get_data_paths_from_yaml(yaml_data: dict, dataset_type: Literal["type1", "type2"]):
     dataset_type = dataset_type.lower()
     splits = ["train", "val", "test"]
     image_folders = {}
     for split in splits:
-        if split in data:
-            image_folders[split] = data[split]
+        if split in yaml_data:
+            image_folders[split] = yaml_data[split]
     if not image_folders:
         # Display descriptive error if no splits found in the file
         string = ""
@@ -187,7 +185,12 @@ def _get_data_paths_from_yaml(yaml_path, dataset_type: Literal["type1", "type2"]
 
     else:
         raise ValueError(f"Dataset type '{dataset_type}' not supported.")
-    return paths
+    return paths#
+
+
+def _get_class_names_from_yaml(yaml_data: dict) -> dict[int, str]:
+    classes = yaml_data["classes"]
+    return {i: classes[i] for i in range(len(classes))}
 
 
 class Dataset:
@@ -205,14 +208,19 @@ class Dataset:
 
         dataset_type = _get_dataset_structure_type(_dataset)
         if os.path.isfile(_dataset):
-            data_paths = _get_data_paths_from_yaml(_dataset, dataset_type)
+            with open(_dataset, 'r') as file:
+                yaml_data = yaml.safe_load(file)
+
+            data_paths = _get_data_paths_from_yaml(yaml_data, dataset_type)
             self._load_data(data_paths, task=task)
+            self.class_names = _get_class_names_from_yaml(yaml_data)
         elif os.path.isdir(_dataset):
             data_paths = _get_data_paths_from_dir(_dataset, dataset_type)
             self._load_data(data_paths, task=task)
+            self.class_names = {class_index: f"class_{class_index}" for class_index in self.classes_present}
+
         else:
             raise ValueError("The .yaml file or directory provided does not exist.")
-        self.class_names = {class_index: f"class_{class_index}" for class_index in self.classes_present}
 
     def _load_data(self, data: list[dict[str, str | None]], task, clip=False):
         for entry in tqdm(data, desc="Loading dataset"):
@@ -301,29 +309,37 @@ class Dataset:
             classes = classes.union(entry.classes_present)
         return classes
 
-    def save(self, output_dir):
-        self.normalise_class_indexes()
+    def export(self, output_dir, _format="YOLO", variation="type1"):
+        if _format == "YOLO":
+            if variation == "type1":
+                self.normalise_class_indexes()
 
-        split_counts = {}
-        for entry in tqdm(self.contents, desc="Saving"):
-            if entry.split not in split_counts:
-                split_counts[entry.split] = 1
-                create_directory(os.path.join(output_dir, "images", entry.split))
-                create_directory(os.path.join(output_dir, "labels", entry.split))
+                for s in {e.split for e in self.contents}:
+                    create_directory(os.path.join(output_dir, "images", s))
+                    create_directory(os.path.join(output_dir, "labels", s))
+
+                split_counts = {}
+                for entry in tqdm(self.contents, desc="Saving"):
+                    if entry.split not in split_counts:
+                        split_counts[entry.split] = 1
+                    else:
+                        split_counts[entry.split] += 1
+
+                    img_basename = f"{split_counts[entry.split]}.jpg"
+                    label_basename = change_extension(img_basename, "txt")
+                    entry.save_image(os.path.join(output_dir, "images", entry.split, img_basename))
+                    entry.save_label(os.path.join(output_dir, "labels", entry.split, label_basename))
             else:
-                split_counts[entry.split] += 1
+                raise NotImplementedError("Other variations of YOLO not yet implemented!")
 
-            img_basename = f"{split_counts[entry.split]}.jpg"
-            label_basename = change_extension(img_basename, "txt")
-            entry.save_image(os.path.join(output_dir, "images", entry.split, img_basename))
-            entry.save_label(os.path.join(output_dir, "labels", entry.split, label_basename))
-
-        with open(os.path.join(output_dir, "data.yaml"), "w") as file_obj:
-            data = f"train: {os.path.join(output_dir, 'train', 'images')}\n"
-            data += f"val: {os.path.join(output_dir, 'val', 'images')}\n"
-            data += f"nc: {len(self.classes_present)}\n"
-            data += f"classes: {[self.class_names[index] for index in sorted(self.class_names.keys())]}\n"
-            file_obj.write(data)
+            with open(os.path.join(output_dir, "data.yaml"), "w") as file_obj:
+                data = f"train: {os.path.join(output_dir, 'train', 'images')}\n"
+                data += f"val: {os.path.join(output_dir, 'val', 'images')}\n"
+                data += f"nc: {len(self.classes_present)}\n"
+                data += f"classes: {[self.class_names[index] for index in sorted(self.class_names.keys())]}\n"
+                file_obj.write(data)
+        else:
+            raise NotImplementedError("Only YOLO format is supported currently.")
 
     def __add__(self, other):
         if isinstance(other, Dataset):
@@ -403,7 +419,11 @@ class Dataset:
     def set_class_names(self, class_names: dict):
         self.class_names.update(class_names)
 
-    def redistribute_splits(self, train_split=0.8, val_split=0.2, test_split=0.0):
+    def redistribute_splits(self, train_split=0.8, val_split=0.2, test_split=0.0) -> None:
+        """
+        Randomly distributes the entries into new splits, but the probability of an entry being assigned
+        to a specific split is weighted on the arguments provided above.
+        """
         splits = ["train", "val", "test"]
         split_indices = [n for n in range(len(splits))]
         weights = [train_split, val_split, test_split]
@@ -506,7 +526,7 @@ class DatasetEntry:
         except cv2.error:
             pass
 
-    def augment(self, h_shear=None, v_shear=None, rotate=None, flip=False):
+    def augment(self, h_shear=None, v_shear=None, rotate=None, flip=False, aug_value=0.2, aug_strength=0.2):
         """
         Augment the current entry.
         :param h_shear: Horizontal shear. Can be negative or positive.
@@ -520,11 +540,11 @@ class DatasetEntry:
             self.convert_task("segment")
 
         if h_shear is None:
-            h_shear = choice([-1, 1]) * uniform(0.2, 0.5)
+            h_shear = choice([-1, 1]) * uniform(aug_value, aug_value + aug_strength)
         if v_shear is None:
-            v_shear = choice([-1, 1]) * uniform(0.2, 0.5)
+            v_shear = choice([-1, 1]) * uniform(aug_value, aug_value + aug_strength)
         if rotate is None:
-            rotate = choice([-1, 1]) * uniform(5, 10)
+            rotate = choice([-1, 1]) * uniform(aug_value, aug_value + aug_strength)
         if flip is None:
             flip = choice(["h", None])
 
@@ -541,6 +561,7 @@ class DatasetEntry:
         self.set_points(new_points)
 
         self.convert_task(destination_task)
+        self.clip_vertices_to_image()
 
     def export_annotations(self):
         if self.annotations:
@@ -654,3 +675,4 @@ if __name__ == "__main__":
 
     dataset.redistribute_splits(train_split=0.7, test_split=0.1)
     print(dataset.class_names)
+    dataset.export("test_dataset")

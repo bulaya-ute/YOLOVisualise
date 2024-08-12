@@ -9,7 +9,7 @@ import yaml
 from tqdm import tqdm
 
 from utils import change_extension, warp_image_and_points, points_to_coords, fill_translucent_polygon, \
-    relative_to_absolute_coords, coords_to_points, absolute_to_relative_coords, generate_unique_filename, \
+    relative_to_absolute_coords, coords_to_points, absolute_to_relative_coords, \
     create_directory, select_from_weighted_sublists, darken_color, get_yolo_bbox_from_polygon, clip_polygon_to_bbox, \
     clip_bbox_to_bbox, resize_image_to_fit
 
@@ -60,7 +60,18 @@ def _get_dataset_structure_type(_dataset: str) -> Literal["type1"] | Literal["ty
             raise ValueError("Dataset directory is invalid.")
 
     elif os.path.isfile(_dataset):
-        raise NotImplementedError("This dataset type is not supported yet.")
+        with open(_dataset, 'r') as file:
+            data = yaml.safe_load(file)
+        image_folders = {}
+        for split in splits:
+            if split in data:
+                image_folder = data[split]
+                parent_dir = str(os.path.basename(os.path.dirname(image_folder)))
+                if parent_dir.lower() == "images":
+                    return "type1"
+                else:
+                    return "type2"
+        raise ValueError("This file doesn't contain any dataset split data. Unable to get dataset structure type.")
 
     else:
         raise ValueError("The file/directory provided does not exist or is invalid.")
@@ -108,7 +119,7 @@ def _get_data_paths_from_dir(dataset_dir, dataset_type: Literal["type1"] | Liter
                     if img_path.split(".")[-1].lower() in ("jpg", "jpeg", "png"):
                         label_path = os.path.join(dataset_dir, "labels", split_basename,
                                                   change_extension(os.path.basename(img_path), "txt"))
-                        data_paths.append({"image": img_path, "label": label_path, "split": split})
+                        data_paths.append({"image": str(img_path), "label": str(label_path), "split": str(split)})
 
     # Assume it is a type 2 dataset
     elif dataset_type == "type2":
@@ -120,7 +131,7 @@ def _get_data_paths_from_dir(dataset_dir, dataset_type: Literal["type1"] | Liter
                                  f in os.listdir(os.path.join(dataset_dir, split, "images"))]:
                     label_path = os.path.join(dataset_dir, split, "labels",
                                               change_extension(os.path.basename(img_path), "txt"))
-                    data_paths.append({"image": img_path, "label": label_path, "split": split})
+                    data_paths.append({"image": str(img_path), "label": str(label_path), "split": str(split)})
 
     # In case something illegal is provided
     else:
@@ -152,9 +163,9 @@ def _get_data_paths_from_yaml(yaml_path, dataset_type: Literal["type1", "type2"]
     paths = []
 
     if dataset_type == "type1":
-        labels_dir = os.path.abspath(os.path.join(image_folders["train"], "..", "..", "labels"))
-        split_folder_name = os.path.basename(image_folders["train"])
         for split, image_dir in image_folders.items():
+            labels_dir = os.path.abspath(os.path.join(image_folders[split], "..", "..", "labels"))
+            split_folder_name = os.path.basename(image_folders[split])
             for image_name in os.listdir(image_dir):
                 if not image_name.endswith((".jpg", ".jpeg", ".png")):
                     continue
@@ -193,7 +204,7 @@ class Dataset:
         self.other_attrs = {}
 
         dataset_type = _get_dataset_structure_type(_dataset)
-        if os.path.isdir(_dataset) and _dataset.endswith(".yaml"):
+        if os.path.isfile(_dataset):
             data_paths = _get_data_paths_from_yaml(_dataset, dataset_type)
             self._load_data(data_paths, task=task)
         elif os.path.isdir(_dataset):
@@ -392,7 +403,7 @@ class Dataset:
     def set_class_names(self, class_names: dict):
         self.class_names.update(class_names)
 
-    def split(self, train_split=0.8, val_split=0.2, test_split=0.0):
+    def redistribute_splits(self, train_split=0.8, val_split=0.2, test_split=0.0):
         splits = ["train", "val", "test"]
         split_indices = [n for n in range(len(splits))]
         weights = [train_split, val_split, test_split]
@@ -635,22 +646,11 @@ class DatasetEntry:
 
 
 if __name__ == "__main__":
+    # dataset = Dataset(_dataset=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2",
+    #                   task="segment")
     dataset = Dataset(
-        dataset_dir=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2",
+        _dataset=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2\data.yaml",
         task="segment")
-    # dataset2 = Dataset(dataset_dir=r"C:\Users\Bulaya\Documents\WhatsApp\fruits\YOLODataset")
-    # # dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
-    # # dataset.remove_unannotated()
-    # # print(dataset.class_names)
-    # dataset.set_class_names(class_names={0: "tomato", 1: "pear", 2: "cherry"})
-    # dataset.add_augmentations(4)
-    # dataset.clip_vertices_to_image()
-    # # dataset.convert_task("detect")
-    # dataset.split(train_split=0.8, val_split=0.2)
-    #
-    # # for _ in range(15):
-    # #     random_sample = choice(dataset)
-    # #     # print(random_sample.annotations)
-    # #     random_sample.show()
-    #
-    # dataset.save(r"C:\Users\Bulaya\PycharmProjects\FruitsDetection\fruits_dataset_refactored")
+
+    dataset.redistribute_splits(train_split=0.7, test_split=0.1)
+    print(dataset.class_names)

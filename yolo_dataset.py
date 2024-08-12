@@ -2,10 +2,10 @@ from copy import copy
 import os
 from math import ceil
 from random import uniform, choice, choices, shuffle
-from typing import Literal, Optional, List, Dict, Tuple, LiteralString
-
+from typing import Literal, Optional
 import cv2
 import numpy as np
+import yaml
 from tqdm import tqdm
 
 from utils import change_extension, warp_image_and_points, points_to_coords, fill_translucent_polygon, \
@@ -41,9 +41,9 @@ Type 2 Dataset Structure:
 
 def _get_dataset_structure_type(_dataset: str) -> Literal["type1"] | Literal["type2"]:
     """
-
+    Determines the dataset structure type of the dataset presented.
     :param _dataset: Must be either path to dataset directory or yaml file
-    :return:
+    :return: "type1" or "type2"
     """
     splits = ["train", "val", "test"]
 
@@ -129,36 +129,81 @@ def _get_data_paths_from_dir(dataset_dir, dataset_type: Literal["type1"] | Liter
     return data_paths
 
 
-# def _get_data_paths_from_yaml(yaml)
+def _get_data_paths_from_yaml(yaml_path, dataset_type: Literal["type1", "type2"]):
+    with open(yaml_path, 'r') as file:
+        data = yaml.safe_load(file)
+    dataset_type = dataset_type.lower()
+    splits = ["train", "val", "test"]
+    image_folders = {}
+    for split in splits:
+        if split in data:
+            image_folders[split] = data[split]
+    if not image_folders:
+        # Display descriptive error if no splits found in the file
+        string = ""
+        if len(splits) > 1:
+            for split in splits[:-1]:
+                string += f"{split}, "
+            string += string[:-2] + " or " + string[-1]
+        else:
+            string = splits[0]
+        raise ValueError(f"Dataset does not contain {string} data.")
+
+    paths = []
+
+    if dataset_type == "type1":
+        labels_dir = os.path.abspath(os.path.join(image_folders["train"], "..", "..", "labels"))
+        split_folder_name = os.path.basename(image_folders["train"])
+        for split, image_dir in image_folders.items():
+            for image_name in os.listdir(image_dir):
+                if not image_name.endswith((".jpg", ".jpeg", ".png")):
+                    continue
+                image_path = os.path.join(image_dir, image_name)
+                label_path = os.path.join(labels_dir, split_folder_name, os.path.splitext(image_name)[0] + '.txt')
+                if not os.path.exists(label_path):
+                    label_path = None
+                paths.append({"image": image_path, "label": label_path, "split": split})
+
+    elif dataset_type == "type2":
+        for split, image_dir in image_folders.items():
+            label_dir = os.path.abspath(os.path.join(image_folders[split], "..", "labels"))
+            for image_name in os.listdir(image_dir):
+                image_path = os.path.join(image_dir, image_name)
+                label_path = os.path.join(label_dir, os.path.splitext(image_name)[0] + '.txt')
+                if not os.path.exists(label_path):
+                    label_path = None
+                paths.append({"image": image_path, "label": label_path, "split": split})
+
+    else:
+        raise ValueError(f"Dataset type '{dataset_type}' not supported.")
+    return paths
 
 
 class Dataset:
-    def __init__(self, data=None, dataset_dir=None, task: str = "segment"):
+    def __init__(self, _dataset, task: str = "segment"):
         """
         Load a YOLO dataset. The entire dataset will be in memory, including the annotations.
 
-        :param data: Path to .yaml file containing dataset information. If provided, it will be used
-            to load the dataset, and `dataset_fir` will be ignored.
-        :param dataset_dir: Path to directory containing dataset images and labels. Will only be used
-            if `data` not provided.
+        :param _dataset: Path to .yaml file containing dataset information or path to directory containing dataset images
+            and labels in YOLO format.
         :param task: The task the dataset is for e.g. "segmentation", "detection".
         """
         self.contents: list["DatasetEntry"] = []
         self.task = task
         self.other_attrs = {}
-        if data is not None:
 
-            raise NotImplementedError("Handling yaml files will be implemented in future. Use dataset_dir for now.")
-        elif dataset_dir is not None:
-            data_paths = _get_data_paths_from_dir(dataset_dir)
-            # [print(d) for d in data_paths]
-            # exit()
+        dataset_type = _get_dataset_structure_type(_dataset)
+        if os.path.isdir(_dataset) and _dataset.endswith(".yaml"):
+            data_paths = _get_data_paths_from_yaml(_dataset, dataset_type)
+            self._load_data(data_paths, task=task)
+        elif os.path.isdir(_dataset):
+            data_paths = _get_data_paths_from_dir(_dataset, dataset_type)
             self._load_data(data_paths, task=task)
         else:
-            raise ValueError("You must provide ")
+            raise ValueError("The .yaml file or directory provided does not exist.")
         self.class_names = {class_index: f"class_{class_index}" for class_index in self.classes_present}
 
-    def _load_data(self, data: list[tuple[str, str, str]], task, clip=False):
+    def _load_data(self, data: list[dict[str, str | None]], task, clip=False):
         for entry in tqdm(data, desc="Loading dataset"):
             img_path, label_path, split = entry["image"], entry["label"], entry["split"]
 

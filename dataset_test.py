@@ -1,6 +1,7 @@
 from yolo_dataset import Dataset
 
-dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
+dataset = Dataset(
+    dataset_dir=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
 for e in dataset:
     for row in e.annotations:
         for n in row[1:]:

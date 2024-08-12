@@ -15,6 +15,13 @@ from utils import change_extension, warp_image_and_points, points_to_coords, fil
 
 
 def _get_data_paths_from_dir(dataset_dir):
+    """
+    Returns a list of dictionaries containing the data paths of all the dataset
+    images, as well as their associated labels (if present) and the split they belong to.
+    :param dataset_dir: The path to the dataset directory.
+    :return: A list of dictionaries, each in the format:
+        {"image": image_path, "label": label_path | None, "split": split}
+    """
     def similar_path_exists(path):
         dir_name = os.path.dirname(path)
         filename = str(os.path.basename(path).lower())
@@ -56,16 +63,33 @@ def _get_data_paths_from_dir(dataset_dir):
     return data_paths
 
 
+# def _get_data_paths_from_yaml(yaml)
+
+
 class Dataset:
-    def __init__(self, dataset_dir=None, data=None, task: str = "segment"):
+    def __init__(self, data=None, dataset_dir=None, task: str = "segment"):
+        """
+        Load a YOLO dataset. The entire dataset will be in memory, including the annotations.
+
+        :param data: Path to .yaml file containing dataset information. If provided, it will be used
+            to load the dataset, and `dataset_fir` will be ignored.
+        :param dataset_dir: Path to directory containing dataset images and labels. Will only be used
+            if `data` not provided.
+        :param task: The task the dataset is for e.g. "segmentation", "detection".
+        """
         self.contents: list["DatasetEntry"] = []
         self.task = task
         self.other_attrs = {}
-        if dataset_dir is not None:
+        if data is not None:
+
+            raise NotImplementedError("Handling yaml files will be implemented in future. Use dataset_dir for now.")
+        elif dataset_dir is not None:
             data_paths = _get_data_paths_from_dir(dataset_dir)
+            # [print(d) for d in data_paths]
+            # exit()
             self._load_data(data_paths, task=task)
-        elif data is not None:
-            raise NotImplementedError("Handling yaml files will be implemented in future.")
+        else:
+            raise ValueError("You must provide ")
         self.class_names = {class_index: f"class_{class_index}" for class_index in self.classes_present}
 
     def _load_data(self, data: list[tuple[str, str, str]], task, clip=False):
@@ -499,19 +523,21 @@ class DatasetEntry:
 
 
 if __name__ == "__main__":
-    dataset = Dataset(r"C:\Users\Bulaya\Documents\WhatsApp\fruits\YOLODataset", task="segment")
-    # dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
-    # dataset.remove_unannotated()
-    # print(dataset.class_names)
-    dataset.set_class_names(class_names={0: "tomato", 1: "pear", 2: "cherry"})
-    dataset.add_augmentations(4)
-    dataset.clip_vertices_to_image()
-    dataset.convert_task("detect")
-    dataset.split(train_split=0.8, val_split=0.2)
-
-    # for _ in range(15):
-    #     random_sample = choice(dataset)
-    #     # print(random_sample.annotations)
-    #     random_sample.show()
-
-    dataset.save(r"C:\Users\Bulaya\PycharmProjects\FruitsDetection\fruits_dataset")
+    dataset = Dataset(dataset_dir=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2",
+                      task="segment")
+    # dataset2 = Dataset(dataset_dir=r"C:\Users\Bulaya\Documents\WhatsApp\fruits\YOLODataset")
+    # # dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
+    # # dataset.remove_unannotated()
+    # # print(dataset.class_names)
+    # dataset.set_class_names(class_names={0: "tomato", 1: "pear", 2: "cherry"})
+    # dataset.add_augmentations(4)
+    # dataset.clip_vertices_to_image()
+    # # dataset.convert_task("detect")
+    # dataset.split(train_split=0.8, val_split=0.2)
+    #
+    # # for _ in range(15):
+    # #     random_sample = choice(dataset)
+    # #     # print(random_sample.annotations)
+    # #     random_sample.show()
+    #
+    # dataset.save(r"C:\Users\Bulaya\PycharmProjects\FruitsDetection\fruits_dataset_refactored")

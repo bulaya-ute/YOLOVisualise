@@ -1,12 +1,16 @@
 import os
+from typing import Literal
+
 import yaml
 
 
-def load_image_label_pairs(yaml_path):
+def get_data_paths_from_yaml(yaml_path, dataset_type: Literal["type1", "type2"]):
     with open(yaml_path, 'r') as file:
         data = yaml.safe_load(file)
+    splits = ["train", "val", "test"]
+    dataset_root_dir = os.path.dirname(data["train"])
 
-    def get_image_label_pairs(split):
+    def _get_split_paths(split):
         image_dir = data[split]
         # Derive the label directory by navigating up one level and then into the 'labels' folder
         label_dir = os.path.join(os.path.dirname(image_dir), 'labels', os.path.basename(image_dir))
@@ -18,19 +22,28 @@ def load_image_label_pairs(yaml_path):
                 label_name = os.path.splitext(image_name)[0] + '.txt'
                 label_path = os.path.join(label_dir, label_name)
 
-                if os.path.exists(label_path):
-                    image_label_pairs.append((image_path, label_path, split))
-                else:
-                    image_label_pairs.append((image_path, None, split))
+                if not os.path.exists(label_path):
+                    # image_label_pairs.append((image_path, label_path, split))
+                    label_path = None
+                # else:
+                #     image_label_pairs.append((image_path, None, split))
+
+                image_label_pairs.append({"image": image_path, "label": label_path, "split": split})
 
         return image_label_pairs
 
-    # Combine pairs from both train and val splits
-    all_pairs = get_image_label_pairs('train') + get_image_label_pairs('val')
-    return all_pairs
+    paths = []
+    if dataset_type == "type1":
+        for split in splits:
+            if split in data:
+                paths.append(_get_split_paths(split))
+
+    if dataset_type == "type2":
+
+    return paths
 
 
-pairs = load_image_label_pairs(
+pairs = get_data_paths_from_yaml(
     r'C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2\data.yaml')
 
 [print(k) for k in pairs]

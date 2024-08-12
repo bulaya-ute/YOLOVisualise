@@ -2,7 +2,7 @@ from copy import copy
 import os
 from math import ceil
 from random import uniform, choice, choices, shuffle
-from typing import Literal
+from typing import Literal, Optional, List, Dict, Tuple, LiteralString
 
 import cv2
 import numpy as np
@@ -13,32 +13,93 @@ from utils import change_extension, warp_image_and_points, points_to_coords, fil
     create_directory, select_from_weighted_sublists, darken_color, get_yolo_bbox_from_polygon, clip_polygon_to_bbox, \
     clip_bbox_to_bbox, resize_image_to_fit
 
+"""
+Type 1 Dataset Structure:
+    dataset_dir
+        images
+            train
+            val
+            test
+        labels
+            train
+            val
+            test
 
-def _get_data_paths_from_dir(dataset_dir):
+Type 2 Dataset Structure:
+    dataset_dir
+        train:
+            images
+            labels
+        val:
+            images
+            labels
+        test:
+            images
+            labels
+"""
+
+
+def _get_dataset_structure_type(_dataset: str) -> Literal["type1"] | Literal["type2"]:
+    """
+
+    :param _dataset: Must be either path to dataset directory or yaml file
+    :return:
+    """
+    splits = ["train", "val", "test"]
+
+    # First check if a directory has been provided
+    if os.path.isdir(_dataset):
+        dataset_dir = _dataset
+        # Check if it is a type 1 dataset
+        if os.path.exists(f"{dataset_dir}/images"):
+            return "type1"
+        # Check if it is a type 2 dataset
+        elif any([os.path.exists(f"{dataset_dir}/{split}") for split in splits]):
+            return "type2"
+        else:
+            raise ValueError("Dataset directory is invalid.")
+
+    elif os.path.isfile(_dataset):
+        raise NotImplementedError("This dataset type is not supported yet.")
+
+    else:
+        raise ValueError("The file/directory provided does not exist or is invalid.")
+
+
+def _get_data_paths_from_dir(dataset_dir, dataset_type: Literal["type1"] | Literal["type2"]) \
+        -> list[dict[str, str | None]]:
     """
     Returns a list of dictionaries containing the data paths of all the dataset
     images, as well as their associated labels (if present) and the split they belong to.
+
     :param dataset_dir: The path to the dataset directory.
     :return: A list of dictionaries, each in the format:
         {"image": image_path, "label": label_path | None, "split": split}
     """
-    def similar_path_exists(path):
+
+    dataset_type = dataset_type.lower()
+
+    def find_similar_file(path: str) -> Optional[str]:
         dir_name = os.path.dirname(path)
         filename = str(os.path.basename(path).lower())
 
         dir_contents = os.listdir(dir_name)
+        if filename in dir_contents:
+            return os.path.join(dir_name, filename)
+
         for dir_file in [f.lower() for f in dir_contents]:
-            if filename in dir_file:
+            if filename.lower() in dir_file:
                 return os.path.join(dir_name, dir_file)
-        return False
+        return None
 
     splits = ("train", "val", "test")
-    data_paths = []  # In [(image_path, label_path, split), ...] format
+    data_paths = []  # Format: [{"image": image_path, "labels": label_path, "split": split}, ...]
 
-    if os.path.exists(f"{dataset_dir}/images"):
+    # Check if it is a type 1 dataset
+    if dataset_type == "type1":
         for split in splits:
             images_dir = os.path.join(dataset_dir, "images", split)
-            split_dir_name = similar_path_exists(images_dir)
+            split_dir_name = find_similar_file(images_dir)
             if split_dir_name:
                 split_basename = os.path.basename(split_dir_name)
                 images_dir = split_dir_name
@@ -47,18 +108,23 @@ def _get_data_paths_from_dir(dataset_dir):
                     if img_path.split(".")[-1].lower() in ("jpg", "jpeg", "png"):
                         label_path = os.path.join(dataset_dir, "labels", split_basename,
                                                   change_extension(os.path.basename(img_path), "txt"))
-                        data_paths.append((img_path, label_path, split))
-        return data_paths
+                        data_paths.append({"image": img_path, "label": label_path, "split": split})
 
-    for split in splits:
-        split_dir = os.path.join(dataset_dir, split)
-        if similar_path_exists(split_dir):
-            split_dir = similar_path_exists(split_dir)
-            for img_path in [os.path.join(split_dir, "images", f) for
-                             f in os.listdir(os.path.join(dataset_dir, split, "images"))]:
-                label_path = os.path.join(dataset_dir, split, "labels",
-                                          change_extension(os.path.basename(img_path), "txt"))
-                data_paths.append((img_path, label_path, split))
+    # Assume it is a type 2 dataset
+    elif dataset_type == "type2":
+        for split in splits:
+            split_dir = os.path.join(dataset_dir, split)
+            if find_similar_file(split_dir):
+                split_dir = find_similar_file(split_dir)
+                for img_path in [os.path.join(split_dir, "images", f) for
+                                 f in os.listdir(os.path.join(dataset_dir, split, "images"))]:
+                    label_path = os.path.join(dataset_dir, split, "labels",
+                                              change_extension(os.path.basename(img_path), "txt"))
+                    data_paths.append({"image": img_path, "label": label_path, "split": split})
+
+    # In case something illegal is provided
+    else:
+        raise ValueError(f"Dataset type '{dataset_type}' is not supported or is invalid.")
 
     return data_paths
 
@@ -93,7 +159,8 @@ class Dataset:
         self.class_names = {class_index: f"class_{class_index}" for class_index in self.classes_present}
 
     def _load_data(self, data: list[tuple[str, str, str]], task, clip=False):
-        for img_path, label_path, split in tqdm(data, desc="Loading dataset"):
+        for entry in tqdm(data, desc="Loading dataset"):
+            img_path, label_path, split = entry["image"], entry["label"], entry["split"]
 
             # Load the image in RGB format
             loaded_image = cv2.imread(img_path)
@@ -523,8 +590,9 @@ class DatasetEntry:
 
 
 if __name__ == "__main__":
-    dataset = Dataset(dataset_dir=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2",
-                      task="segment")
+    dataset = Dataset(
+        dataset_dir=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2",
+        task="segment")
     # dataset2 = Dataset(dataset_dir=r"C:\Users\Bulaya\Documents\WhatsApp\fruits\YOLODataset")
     # # dataset = Dataset(r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\datasets\dental_seg_augmented_2")
     # # dataset.remove_unannotated()

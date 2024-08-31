@@ -230,7 +230,7 @@ class Dataset:
             loaded_image = cv2.imread(img_path)
             loaded_image = cv2.cvtColor(loaded_image, cv2.COLOR_BGR2RGB)
 
-            if os.path.exists(label_path):
+            if label_path and os.path.exists(label_path):
                 with open(label_path, "r") as _file_obj:
                     _rows = _file_obj.readlines()
                     annotations = []
@@ -312,7 +312,7 @@ class Dataset:
     def export(self, output_dir, _format="YOLO", variation="type1"):
         if _format == "YOLO":
             if variation == "type1":
-                self.normalise_class_indexes()
+                # self.normalise_class_indexes()
 
                 for s in {e.split for e in self.contents}:
                     create_directory(os.path.join(output_dir, "images", s))
@@ -333,8 +333,8 @@ class Dataset:
                 raise NotImplementedError("Other variations of YOLO not yet implemented!")
 
             with open(os.path.join(output_dir, "data.yaml"), "w") as file_obj:
-                data = f"train: {os.path.join(output_dir, 'train', 'images')}\n"
-                data += f"val: {os.path.join(output_dir, 'val', 'images')}\n"
+                data = f"train: {os.path.join(output_dir, 'images', 'train')}\n"
+                data += f"val: {os.path.join(output_dir, 'images', 'val')}\n"
                 data += f"nc: {len(self.classes_present)}\n"
                 data += f"classes: {[self.class_names[index] for index in sorted(self.class_names.keys())]}\n"
                 file_obj.write(data)
@@ -425,11 +425,10 @@ class Dataset:
         to a specific split is weighted on the arguments provided above.
         """
         splits = ["train", "val", "test"]
-        split_indices = [n for n in range(len(splits))]
         weights = [train_split, val_split, test_split]
         for entry in tqdm(self.contents, desc="Splitting"):
-            new_split_index = choices(split_indices, weights=weights, k=1)[0]
-            entry.set_split(splits[new_split_index])
+            new_split = choices(splits, weights=weights, k=1)[0]
+            entry.set_split(new_split)
 
 
 class DatasetEntry:
@@ -437,7 +436,7 @@ class DatasetEntry:
     Base class for dataset entry. It contains the image, annotations and more information
     such as the task (e.g. detect or segment).
     """
-    # Colors are in BGR format
+    # Colors are in RGB format
     colors = [
         [96, 43, 186],  # Blue
         [255, 255, 255],  # White
@@ -670,9 +669,21 @@ if __name__ == "__main__":
     # dataset = Dataset(_dataset=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2",
     #                   task="segment")
     dataset = Dataset(
-        _dataset=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2\data.yaml",
+        _dataset=r"C:\Users\Bulaya\PycharmProjects\YOLOVisualise\dental_dataset\data.yaml",
         task="segment")
+    # dataset = Dataset(
+    #     _dataset=r"C:\Users\Bulaya\PycharmProjects\DentalDiseasesDetection\model\dental_seg_augmented_2\data.yaml",
+    #     task="segment")
 
-    dataset.redistribute_splits(train_split=0.7, test_split=0.1)
-    print(dataset.class_names)
-    dataset.export("test_dataset")
+    dataset.shuffle_data()
+    dataset.redistribute_splits(train_split=0.8, val_split=0.2)
+    # dataset.show_instance_counts()
+    for _ in range(100):
+
+        r = choice(dataset)
+        while r.annotations:
+            r = choice(dataset)
+        print(r.split, r.annotations)
+        r.show()
+
+    dataset.export("dental_dataset")
